@@ -438,19 +438,9 @@ void ordreAlphabetique (int16_t premier)
    Fonctions de base de reconnaissance des formats de fichier
   =================================================================================
 */
-bool testExtMZF (char *nom_fichier)
- {
-  return !!strstr (strlwr (nom_fichier + (strlen (nom_fichier)-4)), ".MZF") ;
- }
-
 bool testExtmzf (char *nom_fichier)
  {
   return !!strstr (strlwr (nom_fichier + (strlen (nom_fichier)-4)), ".mzf") ;
- }
-
-bool testExtMZT (char *nom_fichier)
- {
-  return !!strstr (strlwr (nom_fichier + (strlen (nom_fichier)-4)), ".MZT") ;
  }
 
 bool testExtmzt (char *nom_fichier)
@@ -458,19 +448,9 @@ bool testExtmzt (char *nom_fichier)
   return !!strstr (strlwr (nom_fichier + (strlen (nom_fichier)-4)), ".mzt") ;
  }
 
-bool testExtM12 (char *nom_fichier)
- {
-  return !!strstr (strlwr (nom_fichier + (strlen (nom_fichier)-4)), ".M12") ;
- }
-
 bool testExtm12 (char *nom_fichier)
  {
   return !!strstr (strlwr (nom_fichier + (strlen (nom_fichier)-4)), ".m12") ;
- }
-
-bool testExtBIN (char *nom_fichier)
- {
-  return !!strstr (strlwr (nom_fichier + (strlen (nom_fichier)-4)), ".BIN") ;
  }
 
 bool testExtbin (char *nom_fichier)
@@ -606,13 +586,13 @@ void obtientEntree (int16_t nouvel_index)
    {
     entree.getSFN  (nom_fichier_court) ;
     entree.getName (nom_fichier_long, SD_TAILLE_NOM_LONG) ;
-
-         if (entree.isDir ())                                                   { entree_type = TYPE_FORMAT_REPERTOIRE ; }
-    else if ((testExtMZF (nom_fichier_long)) | (testExtmzf (nom_fichier_long))) { entree_type = TYPE_FORMAT_MZF ; }
-    else if ((testExtMZT (nom_fichier_long)) | (testExtmzt (nom_fichier_long))) { entree_type = TYPE_FORMAT_MZT ; }
-    else if ((testExtM12 (nom_fichier_long)) | (testExtm12 (nom_fichier_long))) { entree_type = TYPE_FORMAT_M12 ; }
-    else if ((testExtBIN (nom_fichier_long)) | (testExtbin (nom_fichier_long))) { entree_type = TYPE_FORMAT_BIN ; }
-    else                                                                        { entree_type = TYPE_FORMAT_INCONNU ; }
+    
+         if (entree.isDir ())               { entree_type = TYPE_FORMAT_REPERTOIRE ; }
+    else if (testExtmzf (nom_fichier_long)) { entree_type = TYPE_FORMAT_MZF ; }
+    else if (testExtmzt (nom_fichier_long)) { entree_type = TYPE_FORMAT_MZT ; }
+    else if (testExtm12 (nom_fichier_long)) { entree_type = TYPE_FORMAT_M12 ; }
+    else if (testExtbin (nom_fichier_long)) { entree_type = TYPE_FORMAT_BIN ; }
+    else                                    { entree_type = TYPE_FORMAT_INCONNU ; }
     
     entree_taille = entree.fileSize () ;
     entree_index = nouvel_index ;

@@ -50,6 +50,8 @@
 //#define INTERFACE_SERIE false
 #define INTERFACE_SERIE_BAUD 115200
 
+boolean transfert_rapide_actif = true ;
+
 // ==================================
 //  Interface Cassette SHARP MZ
 // ==================================
@@ -226,13 +228,14 @@ uint8_t menu_lecture = 0 ;
 // ==================================
 #define MZF_INCONNU             0
 #define MZF_BINAIRE             1
-#define MZF_KUMA_INT_COMPILER   2
-#define MZF_BASIC_MZ700         3
-#define MZF_BINAIRE_PURE        4
-#define MZF_DATA_MZ700          5
-#define MZF_BASIC_MZ80          6
-#define MZF_DATA_MZ80           7
-#define MZF_BINAIRE_MZF1        8
+#define MZF_KUMA_INT            2
+#define MZF_KUMA_COMPILER       3
+#define MZF_BASIC_MZ700         4
+#define MZF_BINAIRE_PURE        5
+#define MZF_DATA_MZ700          6
+#define MZF_BASIC_MZ80          7
+#define MZF_DATA_MZ80           8
+#define MZF_BINAIRE_MZF1        9
 
 byte mzf_type = 0 ;
 unsigned int mzf_taille = 0 ;
@@ -476,9 +479,8 @@ void typeFichierMZ ()
   switch (donnee)
    {
     // Binaire et Kuma Interpreter/Compiler
-    case 0x01 : if ((mzf_execution != 0x0000) &&
-                    (mzf_execution >= mzf_adresse)) { mzf_type = MZF_BINAIRE ; }
-                                               else { mzf_type = MZF_KUMA_INT_COMPILER ; }
+    case 0x01 : if (mzf_execution != 0x0000) { mzf_type = MZF_BINAIRE ; }
+                                        else { mzf_type = MZF_KUMA_COMPILER ; }
                 // Lecture du nom du fichier long
                 for (int i = 0 ; i < 17 ; i++) { entree.read () ; }
                 break ;
@@ -497,7 +499,7 @@ void typeFichierMZ ()
     // Sharp Basic 1Z-013B et Kuma Interpreter/Compiler
     case 0x05 :      if ((mzf_adresse == 0x6BCF) ||
                          (mzf_adresse == 0x0000))   { mzf_type = MZF_BASIC_MZ700 ; }
-                else if  (mzf_adresse == 0x4000)    { mzf_type = MZF_KUMA_INT_COMPILER ; }
+                else if  (mzf_adresse == 0x4000)    { mzf_type = MZF_KUMA_INT ; }
                 // Lecture du nom du fichier long
                 for (int i = 0 ; i < 17 ; i++) { entree.read () ; }
                 break ;
@@ -522,7 +524,7 @@ void typeFichierMZ ()
     mzf_adresse   += (entree.read () & 0xFF) << 8 ;
     
     // Taille
-    mzf_taille     = entree_taille-7 ; //((entree.read () & 0xFF)+(entree.read () & 0xFF)<<8) - mzf_adresse + 1 ;
+    mzf_taille     = entree_taille-7 ;
     entree.read () ; 
     entree.read () ;
     
@@ -814,33 +816,123 @@ void lectureFichierMZF ()
   unsigned char   donnee ;
   uint32_t        checkSum ;
   unsigned int    i = 0 ;
+  unsigned int    j = 0 ;
+  int             front ;
+  unsigned char   transfert_rapide [77] =
+   {
+    0x01, // Binaire
+    // Nom
+    0x54, 0x52, 0x41, 0x4E, 0x53, 0x46, 0x45, 0x52, 0x54, 0x20, 0x52, 0x41, 0x50, 0x49, 0x44, 0x45, 0x0D,
+    // Taille
+    0x03, 0x00, 
+    // Adresse
+    0x00, 0xD4,
+    // Execution programme qui suit
+    0x00, 0xD4,
+                      // Org $1108 
+    0x01, 0x10, 0x00, //   LD BC, Taille
+    0x21, 0x00, 0x12, //   LD HL, Adresse
+    0x3E, 0x02,       //   LD A, $02      Front bas
+    0x32, 0x02, 0xE0, //   LD ($E002), A
+                      // A:
+    0xE5,             //   PUSH HL
+    0x21, 0x02, 0xE0, //   LD HL, $E002
+    0x11, 0x08, 0x00, //   LD DE, $0008  (D=$00 et E=$08) D=Valeur et E=Nbr bits
+                      // B:
+    0x7E,             //   LD A, (HL)
+    0xE6, 0x10,       //   AND $10  (MOTOR ON : SENSE = 0 ?)
+    0x20, 0xFB,       //   JR NZ, B:
+    0xAF,             //   XOR A          Front haut
+    0x77,             //   LD (HL), A     DWRITE =  1
+                      // C:
+    0x7E,             //   LD A, (HL)
+    0xE6, 0x10,       //   AND $10  (MOTOR ON : SENSE = 1 ?)
+    0x28, 0xFB,       //   JR Z, C:
+    0x7E,             //   LD A, (HL)   recupere 1 bit de donnee (ordre bit 5,4,3,2,1,0,7,6)
+    0xE6, 0x20,       //   AND $20      recupere le bit de donnee
+    0xB2,             //   OR D
+    0x07,             //   RLCA
+    0x57,             //   LD D, A
+    0x3E, 0x02,       //   LD A, $02      Front bas
+    0x77,             //   LD (HL), A     DWRITE =  0
+    0x1D,             //   DEC E
+    0x20, 0xE8,       //   JR NZ, B:
+    0xE1,             //   POP HL
+    0x72,             //   LD (HL), D  Stockage de la valeur au bon endroit
+    0x0B,             //   DEC BC
+    0x79,             //   LD A, C
+    0xB0,             //   OR B
+    0x23,             //   INC HL
+    0x20, 0xD9,       //   JR NZ, A:
+    0xC3, 0xAD, 0x00  //   JP Programme   Fini on execute
+   } ;
+  uint8_t         ordre [8] = { 32, 16, 8, 4, 2, 1, 128, 64 } ;
   uint32_t        position = 0x80 ;
   uint8_t         entete [128] ;
+  unsigned long   t1, t2 ;
+
+  if ((mzf_type == MZF_BINAIRE) ||
+      (mzf_type == MZF_KUMA_COMPILER) ||
+      (mzf_type == MZF_BINAIRE_PURE) ||
+      (mzf_type == MZF_BINAIRE_MZF1)) { transfert_rapide_actif = true ; }
+                                 else { transfert_rapide_actif = false ; }
 
   // Remplissage du tableau entete
+  if (transfert_rapide_actif == true)
+   {
+    // Entete transfert rapide
+    for (i = 0 ; i < 77 ; i++) { entete [i] = transfert_rapide [i] ; }
+    for (i = 77 ; i < 128 ; i++) { entete [i] = 0 ; }
+   }
+
   entree.seekSet (0) ;
   if (mzf_type == MZF_BINAIRE_PURE)
    {
-    entete [0] = (uint8_t)(entree.read () & 0xFF) ;
-    for (i = 0 ; i < 128 ; i++) { entete [i] = 0x00 ; }
-    // Type BINAIRE OBJ
-    entete [0] = 0x01 ;
+    if (transfert_rapide_actif == false)
+     {
+      entete [0] = (uint8_t)(entree.read () & 0xFF) ;
+      for (i = 0 ; i < 128 ; i++) { entete [i] = 0x00 ; }
+      // Type BINAIRE OBJ
+      entete [0] = 0x01 ;
+     }
+    else { donnee = (uint8_t)(entree.read () & 0xFF) ; }
+    
     // Nom du fichier
-    for (i = 0 ; i < 12 ; i++) { entete [i+1] = nom_fichier_court [i] ; }
+    for (i = 0 ; i < 12 ; i++) { entete [i+1] = strupr (nom_fichier_court [i]) ; }
     for (i = 13 ; i < 18 ; i++) { entete [i] = 0x0D ; }
     // Taille, Adresse, Execution
-    // Adresse
-    entete [20] = (uint8_t)(entree.read () & 0xFF) ;
-    entete [21] = (uint8_t)(entree.read () & 0xFF) ;
-    // Taille
-    uint16_t taille = entree_taille-7 ;
-    entete [18] = (uint8_t)(taille & 0x00FF) ;
-    entete [19] = (uint8_t)((taille >> 8) & 0x00FF) ;
-    entree.read () ;
-    entree.read () ;
-    // Execution
-    entete [22] = (uint8_t)(entree.read () & 0xFF) ;
-    entete [23] = (uint8_t)(entree.read () & 0xFF) ;
+    if (transfert_rapide_actif == false)
+     {
+      // Transfert Conventionnel
+      // Adresse
+      entete [20] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [21] = (uint8_t)(entree.read () & 0xFF) ;
+      // Taille
+      uint16_t taille = entree_taille-7 ;
+      entete [18] = (uint8_t)(taille & 0x00FF) ;
+      entete [19] = (uint8_t)((taille >> 8) & 0x00FF) ;
+      entree.read () ;
+      entree.read () ;
+      // Execution
+      entete [22] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [23] = (uint8_t)(entree.read () & 0xFF) ;
+     }
+    else
+     {
+      // Transfert Rapide
+      // Adresse
+      entete [28] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [29] = (uint8_t)(entree.read () & 0xFF) ;
+      // Taille
+      uint16_t taille = entree_taille-7 ;
+      entete [25] = (uint8_t)(taille & 0x00FF) ;
+      entete [26] = (uint8_t)((taille >> 8) & 0x00FF) ;
+      entree.read () ;
+      entree.read () ;
+      // Execution
+      entete [75] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [76] = (uint8_t)(entree.read () & 0xFF) ;
+     }
     
     // Position des donnees
     position = 0x07 ;
@@ -848,16 +940,58 @@ void lectureFichierMZF ()
   else if (mzf_type == MZF_BINAIRE_MZF1)
    {
     // Lecture des 4 premiers octets MZF1
-    for (i = 0 ; i < 4 ; i++) { entete [0] = (uint8_t)(entree.read () & 0xFF) ; }
-    // Chargement de toute l'entete
-    for (i = 0 ; i < 128 ; i++) { entete [i] = (uint8_t)(entree.read () & 0xFF) ; }
+    for (i = 0 ; i < 4 ; i++) { entree.read () ; }
+    if (transfert_rapide_actif == false)
+     {
+      // Transfert Conventionnel
+      // Chargement de toute l'entete
+      for (i = 0 ; i < 128 ; i++) { entete [i] = (uint8_t)(entree.read () & 0xFF) ; }
+     }
+    else
+     {
+      // Transfert rapide
+      // Lecture type de fichier
+      entree.read () ;
+      // Nom du fichier
+      for (i = 1 ; i < 18 ; i++) { entete [i] = (uint8_t)(entree.read () & 0xFF) ; }
+      // Taille
+      entete [25] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [26] = (uint8_t)(entree.read () & 0xFF) ;
+      // Adresse
+      entete [28] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [29] = (uint8_t)(entree.read () & 0xFF) ;
+      // Execution
+      entete [75] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [76] = (uint8_t)(entree.read () & 0xFF) ;
+     }
     // Position des donnees
     position = 0x84 ;
    }
   else // MZF/MZT/M12
    {
-    // Chargement de toute l'entete
-    for (i = 0 ; i < 128 ; i++) { entete [i] = (uint8_t)(entree.read () & 0xFF) ; }
+    if (transfert_rapide_actif == false)
+     {
+      // Transfert Conventionnel
+      // Chargement de toute l'entete
+      for (i = 0 ; i < 128 ; i++) { entete [i] = (uint8_t)(entree.read () & 0xFF) ; }
+     }
+    else
+     {
+      // Transfert rapide
+      // Type de programme
+      donnee = (uint8_t)(entree.read () & 0xFF) ;
+      // Nom du fichier
+      for (i = 1 ; i < 18 ; i++) { entete [i] = (uint8_t)(entree.read () & 0xFF) ; }
+      // Taille
+      entete [25] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [26] = (uint8_t)(entree.read () & 0xFF) ;
+      // Adresse
+      entete [28] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [29] = (uint8_t)(entree.read () & 0xFF) ;
+      // Execution
+      entete [75] = (uint8_t)(entree.read () & 0xFF) ;
+      entete [76] = (uint8_t)(entree.read () & 0xFF) ;
+     }
     // Position des donnees
     position = 0x80 ;
    }
@@ -871,7 +1005,7 @@ void lectureFichierMZF ()
     lcd.drawStr (5, 55, "LECTURE : Entete") ;
    }
   while (lcd.nextPage ()) ;
-
+   
   // -------------------------------------------------------------------
   // Entete caracteristiques fichier
   //
@@ -891,7 +1025,7 @@ void lectureFichierMZF ()
   emissionOctet ((unsigned char)(checkSum & 0x00FF)) ; // Poids Faible
   emissionBit (duree_periode_reelle_bit_1, duree_haut_reelle_bit_1) ; // 1 "1"
   // -------------------------------------------------------------------
-
+  
   digitalWrite (LED, LOW) ;
 
   lcd.firstPage () ;
@@ -908,26 +1042,88 @@ void lectureFichierMZF ()
   // -------------------------------------------------------------------
   // Synchronisation entete PROGRAMME
   //
-  entree.seekSet (position) ; // 0x80
+  entree.seekSet (position) ;
 
   delay (2000) ; // Attente de 2s pour contrer l'attente MONITOR MOTOR
   emissionGAP (100) ; // 100 impulsions prises en compte par le MONITOR au lieu de 22000
   emissionTapeMark (20) ; // 20 "1" + 20 "0" + 1 "1"
   emissionBit (duree_periode_reelle_bit_1, duree_haut_reelle_bit_1) ; // 1 "1"
-  
+
   // Programme
-  checkSum = 0 ;
-  for (i = 0 ; i < mzf_taille ; i++)
+  if (transfert_rapide_actif == false)
    {
-    donnee = entree.read () ;
-    checkSum += emissionOctet (donnee) ;
+    checkSum = 0 ;
+    for (i = 0 ; i < mzf_taille ; i++)
+     {
+      donnee = entree.read () ;
+      checkSum += emissionOctet (donnee) ;
+     }
+    emissionOctet ((unsigned char)((checkSum >> 8) & 0x00FF)) ; // Poids Fort
+    emissionOctet ((unsigned char)(checkSum & 0x00FF)) ; // Poids Faible
+    emissionBit (duree_periode_reelle_bit_1, duree_haut_reelle_bit_1) ; // 1 "1"
+   }
+  else
+   {
+    // Mode Transfert Rapide
+    checkSum = emissionOctet (0xC3) ;
+    checkSum += emissionOctet (0x08) ;
+    checkSum += emissionOctet (0x11) ;
    }
   emissionOctet ((unsigned char)((checkSum >> 8) & 0x00FF)) ; // Poids Fort
   emissionOctet ((unsigned char)(checkSum & 0x00FF)) ; // Poids Faible
   emissionBit (duree_periode_reelle_bit_1, duree_haut_reelle_bit_1) ; // 1 "1"
-  // -------------------------------------------------------------------
+  // ===================================================================
 
-  digitalWrite (MZ_CASSETTE_READ, HIGH) ; // Signal de donnee a 1
+  if (transfert_rapide_actif == true)
+   {
+    t1 = micros () ;
+    // Reinitialisation
+    digitalWrite (MZ_CASSETTE_SENSE, HIGH) ; // signal /SENSE a 1 (Lecteur non disponible SENSE=0)
+    
+    entree.seekSet (position) ;
+
+    lcd.firstPage () ;
+    do 
+     {
+      proprietesFichier (2) ;
+      lcd.setDefaultForegroundColor () ;
+      lcd.drawStr (5, 55, "LECTURE : Rapide") ;
+     }
+    while (lcd.nextPage ()) ;
+
+    // REM : Malgre le positionnement de seekSet il ne veut pas aller en position $80 ou $84
+    //       J'ai du faire une erreur quelque part, mais je n'ai pas le temps de chercher encore...
+    //       Donc pour l'instant bricolage, on saute 104 octets !!!!
+    if (position >= 0x80) { for (i = 0 ; i < 104 ; i++) { donnee = (uint8_t)(entree.read () & 0xFF) ; } }
+    //       Mais c'est a revoir evidemment.
+    
+    for (i = 0 ; i < mzf_taille ; i++)
+     {
+      donnee = (uint8_t)(entree.read () & 0xFF) ;
+      for (j = 0 ; j < 8 ; j++)
+       {
+        // Attente demande donnee
+        while (digitalRead (MZ_CASSETTE_WRITE) == 0) { }
+        
+        // Positionne le bit
+        digitalWrite (MZ_CASSETTE_READ, ((donnee & ordre [j]) != 0) ? LOW : HIGH) ;
+
+        // Informe le positionnement du bit
+        digitalWrite (MZ_CASSETTE_SENSE, LOW) ; // signal /SENSE a 0 (Lecteur disponible SENSE=1)
+      
+        // Attente de la lecture de la donnee
+        while (digitalRead (MZ_CASSETTE_WRITE) == 1) { }
+
+        // Reinitialisation
+        digitalWrite (MZ_CASSETTE_SENSE, HIGH) ; // signal /SENSE a 1 (Lecteur non disponible SENSE=0)
+       }
+     }
+   }
+ 
+  digitalWrite (MZ_CASSETTE_READ, HIGH) ; // Signal de donnee a 1  -> DREAD=0
+  
+  t2 = micros () ;
+  Serial.print (t2) ; Serial.print ("-") ; Serial.print (t1) ; Serial.print ("=") ; Serial.print (t2-t1) ; Serial.println (" us") ;
  }
  
 
@@ -1320,7 +1516,8 @@ void listeChoixFichiers (void)
              if (mzf_type == MZF_BINAIRE)             { lcd.drawStr (68, 55, "BIN OBJ AE ") ; }
         else if (mzf_type == MZF_BINAIRE_PURE)        { lcd.drawStr (68, 55, "BINAIRE SE ") ; }
         else if (mzf_type == MZF_BINAIRE_MZF1)        { lcd.drawStr (68, 55, "BIN  MZF1  ") ; }
-        else if (mzf_type == MZF_KUMA_INT_COMPILER)   { lcd.drawStr (68, 55, "KUMA BASIC ") ; }
+        else if (mzf_type == MZF_KUMA_INT)            { lcd.drawStr (68, 55, "KUMA BASIC ") ; }
+        else if (mzf_type == MZF_KUMA_COMPILER)       { lcd.drawStr (68, 55, "KUMA OBJ   ") ; }
         else if (mzf_type == MZF_BASIC_MZ700)         { lcd.drawStr (68, 55, "BASIC MZ700") ; }
         else if (mzf_type == MZF_DATA_MZ700)          { lcd.drawStr (68, 55, "DATA MZ700 ") ; }
         else if (mzf_type == MZF_BASIC_MZ80)          { lcd.drawStr (68, 55, "BASIC MZ80 ") ; }
@@ -1371,7 +1568,8 @@ void proprietesFichier (uint8_t choix)
        if (mzf_type == MZF_BINAIRE)             { lcd.drawStr (68, 18, "BIN OBJ AE ") ; }
   else if (mzf_type == MZF_BINAIRE_PURE)        { lcd.drawStr (68, 18, "BINAIRE SE ") ; }
   else if (mzf_type == MZF_BINAIRE_MZF1)        { lcd.drawStr (68, 18, "BIN  MZF1  ") ; }
-  else if (mzf_type == MZF_KUMA_INT_COMPILER)   { lcd.drawStr (68, 18, "KUMA BASIC ") ; }
+  else if (mzf_type == MZF_KUMA_INT)            { lcd.drawStr (68, 18, "KUMA BASIC ") ; }
+  else if (mzf_type == MZF_KUMA_COMPILER)       { lcd.drawStr (68, 18, "KUMA OBJ   ") ; }
   else if (mzf_type == MZF_BASIC_MZ700)         { lcd.drawStr (68, 18, "BASIC MZ700") ; }
   else if (mzf_type == MZF_DATA_MZ700)          { lcd.drawStr (68, 18, "DATA MZ700 ") ; }
   else if (mzf_type == MZF_BASIC_MZ80)          { lcd.drawStr (68, 18, "BASIC MZ80 ") ; }

@@ -1058,9 +1058,9 @@ void lectureFichierMZF ()
       donnee = entree.read () ;
       checkSum += emissionOctet (donnee) ;
      }
-    emissionOctet ((unsigned char)((checkSum >> 8) & 0x00FF)) ; // Poids Fort
-    emissionOctet ((unsigned char)(checkSum & 0x00FF)) ; // Poids Faible
-    emissionBit (duree_periode_reelle_bit_1, duree_haut_reelle_bit_1) ; // 1 "1"
+    //emissionOctet ((unsigned char)((checkSum >> 8) & 0x00FF)) ; // Poids Fort
+    //emissionOctet ((unsigned char)(checkSum & 0x00FF)) ; // Poids Faible
+    //emissionBit (duree_periode_reelle_bit_1, duree_haut_reelle_bit_1) ; // 1 "1"
    }
   else
    {
